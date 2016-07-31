@@ -23,6 +23,7 @@ HANDLE g_hEvent;
 DWORD g_dwThreadID;
 RecvCallback g_pCallback = NULL;
 char g_szDataBuff[INT_DATABUFFER_SIZE];
+char g_szIniPath[MAX_PATH];
 
 
 BOOL BindSocket();
@@ -39,7 +40,7 @@ void _stdcall UninitSocket()
 	g_bOK = FALSE;
 }
 
-BOOL _stdcall InitSocket(int nType)
+BOOL _stdcall InitSocket(int nType, const char* szIniPath)
 {
 	int iResult;
 	WSADATA wsaData;
@@ -87,6 +88,14 @@ BOOL _stdcall InitSocket(int nType)
 		if (BindSocket() == FALSE) return FALSE;
 	}
 
+	if (szIniPath != NULL)
+	{
+		strcpy(g_szIniPath, szIniPath);
+	}
+	else
+	{
+		strcpy(g_szIniPath, "..\\SocketConfig.ini");
+	}
 	g_nType = nType;
 	return TRUE;
 }
@@ -102,10 +111,10 @@ BOOL _stdcall TCPConnect(int nTimeoutMs)
 	char strIpAddr[64] = {0};
 	char strPort[64] = {0};
 
-	GetPrivateProfileStringA("TCP Client", "Server IP Address", "127.0.0.1", strIpAddr, 63, ".\\SocketConfig.ini");
-	WritePrivateProfileStringA("TCP Client", "Server IP Address", strIpAddr, ".\\SocketConfig.ini");
-	GetPrivateProfileStringA("TCP Client", "Server Port", "10000", strPort, 63, ".\\SocketConfig.ini");
-	WritePrivateProfileStringA("TCP Client", "Server Port", strPort, ".\\SocketConfig.ini");
+	GetPrivateProfileStringA("TCP Client", "Server IP Address", "127.0.0.1", strIpAddr, 63, g_szIniPath);
+	WritePrivateProfileStringA("TCP Client", "Server IP Address", strIpAddr, g_szIniPath);
+	GetPrivateProfileStringA("TCP Client", "Server Port", "10000", strPort, 63, g_szIniPath);
+	WritePrivateProfileStringA("TCP Client", "Server Port", strPort, g_szIniPath);
 
 	struct sockaddr_in clientService; 
 
@@ -198,8 +207,8 @@ BOOL BindSocket()
 {
 	char strPort[64] = {0};
 
-	GetPrivateProfileStringA("TCP Server", "Server Port", "10000", strPort, 63, ".\\SocketConfig.ini");
-	WritePrivateProfileStringA("TCP Server", "Server Port", strPort, ".\\SocketConfig.ini");
+	GetPrivateProfileStringA("TCP Server", "Server Port", "10000", strPort, 63, g_szIniPath);
+	WritePrivateProfileStringA("TCP Server", "Server Port", strPort, g_szIniPath);
 
 	struct sockaddr_in clientService; 
 

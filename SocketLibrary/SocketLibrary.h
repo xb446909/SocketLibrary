@@ -13,7 +13,7 @@
 typedef int (*RecvCallback)(int, sockaddr_in, int, char*);
 
 #ifndef SOCKETLIBRARY_EXPORTS
-__declspec(dllimport) BOOL _stdcall InitSocket(int nType);
+__declspec(dllimport) BOOL _stdcall InitSocket(int nType, const char* szIniPath = NULL);
 __declspec(dllimport) BOOL _stdcall SetRecvCallback(RecvCallback pCallback);
 __declspec(dllimport) void _stdcall UninitSocket();
 __declspec(dllimport) BOOL _stdcall TCPConnect(int nTimeoutMs);

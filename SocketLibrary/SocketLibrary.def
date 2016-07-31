@@ -6,4 +6,3 @@ UninitSocket
 TCPConnect
 TCPSend
 TCPRecv
-SetRecvCallback

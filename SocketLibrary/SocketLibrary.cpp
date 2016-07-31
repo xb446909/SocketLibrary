@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <fstream>
+#include <utility>
+#include <map>
 #include "SocketLibrary.h"
 
 using namespace std;
@@ -14,38 +16,63 @@ using namespace std;
 
 #define  UM_QUIT	(WM_USER + 1)
 
-#define INT_DATABUFFER_SIZE (10 * 1024 * 1024)
+#define INT_DATABUFFER_SIZE (1024)
 
-SOCKET g_ConnectSocket;
-int g_nType;
-BOOL g_bOK;
-HANDLE g_hEvent;
-DWORD g_dwThreadID;
-RecvCallback g_pCallback = NULL;
-char g_szDataBuff[INT_DATABUFFER_SIZE];
-char g_szIniPath[MAX_PATH];
+typedef struct _tagSocketParameter
+{
+	SOCKET ConnectSocket;
+	int nType;
+	BOOL bOK;
+	HANDLE hEvent;
+	DWORD dwThreadID;
+	RecvCallback pCallback;
+	char szDataBuff[INT_DATABUFFER_SIZE];
+	char szIniPath[MAX_PATH];
+}SocketParameter, *pSocketParameter;
 
+map<int, SocketParameter> g_socketMap;
 
-BOOL BindSocket();
+BOOL BindSocket(int nID);
 DWORD WINAPI ListenReceiveThread( LPVOID lpParam );
 
-void _stdcall UninitSocket()
+BOOL FindSockParam(int nID, SocketParameter& sockParam)
 {
-	if (g_nType == TCP_SERVER)
+	auto it = g_socketMap.find(nID);
+	if (it == g_socketMap.end())
 	{
-		PostThreadMessage(g_dwThreadID, UM_QUIT, 0, 0);
+		return FALSE;
 	}
-	closesocket(g_ConnectSocket);
-	WSACleanup();
-	g_bOK = FALSE;
+	sockParam = it->second;
+	return TRUE;
 }
 
-BOOL _stdcall InitSocket(int nType, const char* szIniPath)
+void _stdcall UninitSocket(int nID)
+{
+	SocketParameter sockParam;
+	if (!FindSockParam(nID, sockParam))
+	{
+		return;
+	}
+	if (sockParam.nType == TCP_SERVER)
+	{
+		PostThreadMessage(sockParam.dwThreadID, UM_QUIT, 0, 0);
+	}
+	closesocket(sockParam.ConnectSocket);
+	WSACleanup();
+	sockParam.bOK = FALSE;
+}
+
+BOOL _stdcall InitSocket(int nID, int nType, const char* szIniPath, RecvCallback pCallback)
 {
 	int iResult;
 	WSADATA wsaData;
 
-	UninitSocket();
+	SocketParameter sockParam;
+	if (FindSockParam(nID, sockParam))
+	{
+		UninitSocket(nID);
+		g_socketMap.erase(nID);
+	}
 
 	//----------------------
 	// Initialize Winsock
@@ -60,11 +87,11 @@ BOOL _stdcall InitSocket(int nType, const char* szIniPath)
 	{
 	case TCP_SERVER:
 	case TCP_CLIENT:
-		g_ConnectSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+		sockParam.ConnectSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 		break;
 	case UDP_SERVER:
 	case UDP_CLIENT:
-		g_ConnectSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+		sockParam.ConnectSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 		break;
 	default:
 		WSACleanup();
@@ -73,7 +100,7 @@ BOOL _stdcall InitSocket(int nType, const char* szIniPath)
 		return FALSE;
 	}
 
-	if (g_ConnectSocket == INVALID_SOCKET) 
+	if (sockParam.ConnectSocket == INVALID_SOCKET)
 	{
 		fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
 		fs << "Create socket error: " << WSAGetLastError() << endl;
@@ -81,28 +108,36 @@ BOOL _stdcall InitSocket(int nType, const char* szIniPath)
 		return FALSE;
 	}
 
-	if (nType == TCP_SERVER)
-	{
-		BOOL bOptVal = TRUE;
-		setsockopt(g_ConnectSocket, SOL_SOCKET, SO_REUSEADDR, (char *)&bOptVal, sizeof(bOptVal));
-		if (BindSocket() == FALSE) return FALSE;
-	}
-
 	if (szIniPath != NULL)
 	{
-		strcpy(g_szIniPath, szIniPath);
+		strcpy(sockParam.szIniPath, szIniPath);
 	}
 	else
 	{
-		strcpy(g_szIniPath, "..\\SocketConfig.ini");
+		strcpy(sockParam.szIniPath, ".\\SocketConfig.ini");
 	}
-	g_nType = nType;
+	sockParam.pCallback = pCallback;
+	sockParam.nType = nType;
+	g_socketMap.insert(pair<int, SocketParameter>(nID, sockParam));
+
+	if (nType == TCP_SERVER)
+	{
+		BOOL bOptVal = TRUE;
+		setsockopt(sockParam.ConnectSocket, SOL_SOCKET, SO_REUSEADDR, (char *)&bOptVal, sizeof(bOptVal));
+		if (BindSocket(nID) == FALSE) return FALSE;
+	}
+
 	return TRUE;
 }
 
-BOOL _stdcall TCPConnect(int nTimeoutMs)
+BOOL _stdcall TCPConnect(int nID, int nTimeoutMs)
 {
-	if (g_nType != TCP_CLIENT)
+	SocketParameter sockParam;
+	if (!FindSockParam(nID, sockParam))
+	{
+		return FALSE;
+	}
+	if (sockParam.nType != TCP_CLIENT)
 	{
 		fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
 		fs << "The socket type is incorrect" << endl;
@@ -111,10 +146,10 @@ BOOL _stdcall TCPConnect(int nTimeoutMs)
 	char strIpAddr[64] = {0};
 	char strPort[64] = {0};
 
-	GetPrivateProfileStringA("TCP Client", "Server IP Address", "127.0.0.1", strIpAddr, 63, g_szIniPath);
-	WritePrivateProfileStringA("TCP Client", "Server IP Address", strIpAddr, g_szIniPath);
-	GetPrivateProfileStringA("TCP Client", "Server Port", "10000", strPort, 63, g_szIniPath);
-	WritePrivateProfileStringA("TCP Client", "Server Port", strPort, g_szIniPath);
+	GetPrivateProfileStringA("TCP Client", "Server IP Address", "127.0.0.1", strIpAddr, 63, sockParam.szIniPath);
+	WritePrivateProfileStringA("TCP Client", "Server IP Address", strIpAddr, sockParam.szIniPath);
+	GetPrivateProfileStringA("TCP Client", "Server Port", "10000", strPort, 63, sockParam.szIniPath);
+	WritePrivateProfileStringA("TCP Client", "Server Port", strPort, sockParam.szIniPath);
 
 	struct sockaddr_in clientService; 
 
@@ -126,15 +161,15 @@ BOOL _stdcall TCPConnect(int nTimeoutMs)
 	clientService.sin_port = htons(atoi(strPort));
 
 	u_long iMode = 1;
-	ioctlsocket(g_ConnectSocket, FIONBIO, &iMode);
+	ioctlsocket(sockParam.ConnectSocket, FIONBIO, &iMode);
 
 	//----------------------
 	// Connect to server.
-	connect( g_ConnectSocket, (SOCKADDR*) &clientService, sizeof(clientService) );
+	connect(sockParam.ConnectSocket, (SOCKADDR*) &clientService, sizeof(clientService) );
 
 	fd_set r;
 	FD_ZERO(&r);
-	FD_SET(g_ConnectSocket, &r);
+	FD_SET(sockParam.ConnectSocket, &r);
 	struct timeval timeout;
 	timeout.tv_sec = nTimeoutMs / 1000;
 	timeout.tv_usec = (nTimeoutMs % 1000) * 1000;
@@ -144,26 +179,31 @@ BOOL _stdcall TCPConnect(int nTimeoutMs)
 	{
 		fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
 		fs << "Connect server timeout" << endl;
-		closesocket(g_ConnectSocket);
+		closesocket(sockParam.ConnectSocket);
 		WSACleanup();
 		return FALSE;
 	}
-	g_bOK = TRUE;
+	sockParam.bOK = TRUE;
 	return TRUE;
 }
 
-BOOL _stdcall TCPSend(char* szSendBuf)
+BOOL _stdcall TCPSend(int nID, char* szSendBuf)
 {
-	if (!g_bOK)	
+	SocketParameter sockParam;
+	if (!FindSockParam(nID, sockParam))
+	{
+		return FALSE;
+	}
+	if (!sockParam.bOK)
 	{
 		fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
 		fs << "Send error, socket is closed" << endl;
 		return FALSE;
 	}
-	int iResult = send(g_ConnectSocket, szSendBuf, strlen(szSendBuf), 0);
+	int iResult = send(sockParam.ConnectSocket, szSendBuf, strlen(szSendBuf), 0);
 	if (iResult == SOCKET_ERROR) 
 	{
-		UninitSocket();
+		UninitSocket(nID);
 		fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
 		fs << "Send error! error code:" << WSAGetLastError() << endl;
 		return FALSE;
@@ -171,13 +211,18 @@ BOOL _stdcall TCPSend(char* szSendBuf)
 	return TRUE;
 }
 
-BOOL _stdcall TCPRecv(char* szRecvBuf, int nBufLen, int nTimeoutMs)
+BOOL _stdcall TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs)
 {
-	recv(g_ConnectSocket, szRecvBuf, nBufLen, 0);
+	SocketParameter sockParam;
+	if (!FindSockParam(nID, sockParam))
+	{
+		return FALSE;
+	}
+	recv(sockParam.ConnectSocket, szRecvBuf, nBufLen, 0);
 
 	fd_set r;
 	FD_ZERO(&r);
-	FD_SET(g_ConnectSocket, &r);
+	FD_SET(sockParam.ConnectSocket, &r);
 	struct timeval timeout;
 	timeout.tv_sec = nTimeoutMs / 1000;
 	timeout.tv_usec = (nTimeoutMs % 1000) * 1000;
@@ -191,24 +236,24 @@ BOOL _stdcall TCPRecv(char* szRecvBuf, int nBufLen, int nTimeoutMs)
 	}
 	else
 	{
-		recv(g_ConnectSocket, szRecvBuf, nBufLen, 0);
+		recv(sockParam.ConnectSocket, szRecvBuf, nBufLen, 0);
 	}
 	return TRUE;
 }
 
-BOOL _stdcall SetRecvCallback(RecvCallback pCallback)
-{
-	g_pCallback = pCallback;
-	return TRUE;
-}
 
-
-BOOL BindSocket()
+BOOL BindSocket(int nID)
 {
+	SocketParameter sockParam;
+	if (!FindSockParam(nID, sockParam))
+	{
+		return FALSE;
+	}
+
 	char strPort[64] = {0};
 
-	GetPrivateProfileStringA("TCP Server", "Server Port", "10000", strPort, 63, g_szIniPath);
-	WritePrivateProfileStringA("TCP Server", "Server Port", strPort, g_szIniPath);
+	GetPrivateProfileStringA("TCP Server", "Server Port", "10000", strPort, 63, sockParam.szIniPath);
+	WritePrivateProfileStringA("TCP Server", "Server Port", strPort, sockParam.szIniPath);
 
 	struct sockaddr_in clientService; 
 
@@ -221,17 +266,17 @@ BOOL BindSocket()
 
 	//----------------------
 	// Bind the socket.
-	if (bind( g_ConnectSocket, 
+	if (bind(sockParam.ConnectSocket,
 		(SOCKADDR*) &clientService, 
 		sizeof(clientService)) == SOCKET_ERROR) {
 			fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
 			fs << "Bind socket error: " << WSAGetLastError() << endl;
-			UninitSocket();
+			UninitSocket(nID);
 			return FALSE;
 	}
-	HANDLE hThread = CreateThread(NULL, 0, ListenReceiveThread, NULL, 0, &g_dwThreadID);
-	WaitForSingleObject(g_hEvent, INFINITE);
-	ResetEvent(g_hEvent);
+	HANDLE hThread = CreateThread(NULL, 0, ListenReceiveThread, (LPVOID)nID, 0, &sockParam.dwThreadID);
+	WaitForSingleObject(sockParam.hEvent, INFINITE);
+	ResetEvent(sockParam.hEvent);
 
 	return TRUE;
 }
@@ -239,13 +284,20 @@ BOOL BindSocket()
 
 DWORD WINAPI ListenReceiveThread( LPVOID lpParam )
 {
+	int nID = (int)lpParam;
+	SocketParameter sockParam;
+	if (!FindSockParam(nID, sockParam))
+	{
+		return FALSE;
+	}
+
 	MSG msg;
 	PeekMessage(&msg, NULL, WM_USER, WM_USER, PM_NOREMOVE);
-	SetEvent(g_hEvent);
+	SetEvent(sockParam.hEvent);
 
 	fd_set fd;    
 	FD_ZERO(&fd);    
-	FD_SET(g_ConnectSocket, &fd);
+	FD_SET(sockParam.ConnectSocket, &fd);
 
 	int iResult;
 	int iRecvSize;
@@ -254,9 +306,9 @@ DWORD WINAPI ListenReceiveThread( LPVOID lpParam )
 	int iTempLen = sizeof(addrTemp);
 	SOCKET sockAccept;
 
-	if (listen(g_ConnectSocket, SOMAXCONN) == SOCKET_ERROR)
+	if (listen(sockParam.ConnectSocket, SOMAXCONN) == SOCKET_ERROR)
 	{
-		UninitSocket();
+		UninitSocket(nID);
 		return 0;
 	}
 
@@ -267,7 +319,7 @@ DWORD WINAPI ListenReceiveThread( LPVOID lpParam )
 		{
 			if (msg.message == UM_QUIT)
 			{
-				UninitSocket();
+				UninitSocket(nID);
 				return 0;
 			}
 		}
@@ -283,29 +335,29 @@ DWORD WINAPI ListenReceiveThread( LPVOID lpParam )
 				if (FD_ISSET(fd.fd_array[i], &fdOld))
 				{    
 					//如果socket是服务器，则接收连接    
-					if (fd.fd_array[i] == g_ConnectSocket)    
+					if (fd.fd_array[i] == sockParam.ConnectSocket)
 					{    
 						memset(&addrAccept, 0, sizeof(addrAccept)); 
-						sockAccept = accept(g_ConnectSocket, (sockaddr *)&addrAccept, &iAcceptLen); 
+						sockAccept = accept(sockParam.ConnectSocket, (sockaddr *)&addrAccept, &iAcceptLen);
 						if (INVALID_SOCKET != sockAccept)
 						{
-							if(g_pCallback != NULL)
-								g_pCallback(RECV_SOCKET, addrAccept, 0, NULL);
+							if(sockParam.pCallback != NULL)
+								sockParam.pCallback(RECV_SOCKET, addrAccept, 0, NULL);
 							FD_SET(sockAccept, &fd);
 						}    
 					}    
 					else //非服务器,接收数据(因为fd是读数据集)    
 					{    
-						memset(g_szDataBuff, 0, INT_DATABUFFER_SIZE); 
-						iRecvSize = recv(fd.fd_array[i], g_szDataBuff, INT_DATABUFFER_SIZE, 0);    
+						memset(sockParam.szDataBuff, 0, INT_DATABUFFER_SIZE);
+						iRecvSize = recv(fd.fd_array[i], sockParam.szDataBuff, INT_DATABUFFER_SIZE, 0);
 						memset(&addrTemp, 0, sizeof(addrTemp));
 						iTempLen = sizeof(addrTemp);    
 						getpeername(fd.fd_array[i], (sockaddr *)&addrTemp, &iTempLen);
 
 						if (SOCKET_ERROR == iRecvSize)    
 						{
-							if (g_pCallback != NULL)
-								g_pCallback(RECV_ERROR, addrTemp, 0, NULL);
+							if (sockParam.pCallback != NULL)
+								sockParam.pCallback(RECV_ERROR, addrTemp, 0, NULL);
 							closesocket(fd.fd_array[i]);
 							FD_CLR(fd.fd_array[i],&fd);    
 							i--;    
@@ -315,8 +367,8 @@ DWORD WINAPI ListenReceiveThread( LPVOID lpParam )
 						if (0 == iRecvSize)    
 						{    
 							//客户socket关闭    
-							if (g_pCallback != NULL)
-								g_pCallback(RECV_CLOSE, addrTemp, 0, NULL);
+							if (sockParam.pCallback != NULL)
+								sockParam.pCallback(RECV_CLOSE, addrTemp, 0, NULL);
 							closesocket(fd.fd_array[i]);    
 							FD_CLR(fd.fd_array[i], &fd);    
 							i--;        
@@ -325,8 +377,8 @@ DWORD WINAPI ListenReceiveThread( LPVOID lpParam )
 						if (0 < iRecvSize)    
 						{    
 							//打印接收的数据    
-							if (g_pCallback != NULL)
-								g_pCallback(RECV_DATA, addrTemp, iRecvSize, g_szDataBuff);
+							if (sockParam.pCallback != NULL)
+								sockParam.pCallback(RECV_DATA, addrTemp, iRecvSize, sockParam.szDataBuff);
 						}    
 					}       
 				}    

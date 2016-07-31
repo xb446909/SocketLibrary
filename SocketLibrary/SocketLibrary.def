@@ -1,0 +1,9 @@
+LIBRARY
+EXPORTS
+
+InitSocket
+UninitSocket
+TCPConnect
+TCPSend
+TCPRecv
+SetRecvCallback

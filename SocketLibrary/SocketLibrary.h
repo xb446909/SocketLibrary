@@ -32,3 +32,11 @@ __declspec(dllimport) int __stdcall TCPSend(int nID, char* szSendBuf);
 __declspec(dllimport) int __stdcall TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs);
 #endif
 
+#ifdef STATIC_EXPORTS
+__declspec(dllexport) int __stdcall InitSocket(int nID, int nType, const char* szIniPath = NULL, RecvCallback pCallback = NULL);
+__declspec(dllexport) void __stdcall UninitSocket(int nID);
+__declspec(dllexport) int __stdcall TCPConnect(int nID, int nTimeoutMs);
+__declspec(dllexport) int __stdcall TCPSend(int nID, char* szSendBuf);
+__declspec(dllexport) int __stdcall TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs);
+#endif // STATIC_EXPORTS
+

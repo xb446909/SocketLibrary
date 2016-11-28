@@ -16,25 +16,19 @@
 #define SOCK_ERROR		-1
 #define SOCK_TIMEOUT	-2
 
-typedef int (*RecvCallback)(int, sockaddr_in, int, char*);
+typedef int (*RecvCallback)(int nRecvType, sockaddr_in addrClient, int nSize, char* pBuffer);
 
-typedef int (*fInitSocket)(int, int, const char*, RecvCallback);
-typedef void (*fUninitSocket)(int);
-typedef int (*fTCPConnect)(int, int);
-typedef int (*fTCPSend)(int, char*);
-typedef int (*fTCPRecv)(int, char*, int, int);
+typedef int (__stdcall *fInitSocket)(int nID, int nType, const char* szIniPath, RecvCallback pCallback);
+typedef void (__stdcall*fUninitSocket)(int nID);
+typedef int (__stdcall *fTCPConnect)(int nID, int nTimeoutMs);
+typedef int (__stdcall *fTCPSend)(int nID, char* szSendBuf);
+typedef int (__stdcall *fTCPRecv)(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs);
 
 #ifndef SOCKETLIBRARY_EXPORTS
-extern "C" __declspec(dllimport) int InitSocket(int nID, int nType, const char* szIniPath = NULL, RecvCallback pCallback = NULL);
-extern "C" __declspec(dllimport) void UninitSocket(int nID);
-extern "C" __declspec(dllimport) int TCPConnect(int nID, int nTimeoutMs);
-extern "C" __declspec(dllimport) int TCPSend(int nID, char* szSendBuf);
-extern "C" __declspec(dllimport) int TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs);
-#else
-extern "C" __declspec(dllexport) int InitSocket(int nID, int nType, const char* szIniPath = NULL, RecvCallback pCallback = NULL);
-extern "C" __declspec(dllexport) void UninitSocket(int nID);
-extern "C" __declspec(dllexport) int TCPConnect(int nID, int nTimeoutMs);
-extern "C" __declspec(dllexport) int TCPSend(int nID, char* szSendBuf);
-extern "C" __declspec(dllexport) int TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs);
+__declspec(dllimport) int __stdcall InitSocket(int nID, int nType, const char* szIniPath = NULL, RecvCallback pCallback = NULL);
+__declspec(dllimport) void __stdcall UninitSocket(int nID);
+__declspec(dllimport) int __stdcall TCPConnect(int nID, int nTimeoutMs);
+__declspec(dllimport) int __stdcall TCPSend(int nID, char* szSendBuf);
+__declspec(dllimport) int __stdcall TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs);
 #endif
 

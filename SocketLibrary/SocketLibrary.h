@@ -18,35 +18,25 @@
 #define SOCK_ERROR		-1
 #define SOCK_TIMEOUT	-2
 
-typedef int(*RecvCallback)(int nRecvType, sockaddr_in addrClient, int nSize, char* pBuffer);
+typedef int (*RecvCallback)(int, sockaddr_in, int, char*);
 
-typedef int(__stdcall *fInitSocket)(int nID, int nType, const char* szIniPath, RecvCallback pCallback);
-typedef void(__stdcall*fUninitSocket)(int nID);
-typedef int(__stdcall *fTCPConnect)(int nID, int nTimeoutMs);
-typedef int(__stdcall *fTCPSend)(int nID, char* szSendBuf);
-typedef int(__stdcall *fTCPRecv)(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs);
+typedef int (*fInitSocket)(int, int, const char*, RecvCallback);
+typedef void (*fUninitSocket)(int);
+typedef int (*fTCPConnect)(int, int);
+typedef int (*fTCPSend)(int, sockaddr_in addr, char*);//server给指定的client发消息时，client的地址为addr
+typedef int (*fTCPRecv)(int, char*, int, int);
 
 #ifndef SOCKETLIBRARY_EXPORTS
-#if USE_STATIC
-int __stdcall InitSocket(int nID, int nType, const char* szIniPath = NULL, RecvCallback pCallback = NULL);
-void __stdcall UninitSocket(int nID);
-int __stdcall TCPConnect(int nID, int nTimeoutMs);
-int __stdcall TCPSend(int nID, char* szSendBuf);
-int __stdcall TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs);
+extern "C" __declspec(dllimport) int InitSocket(int nID, int nType, const char* szIniPath = NULL, RecvCallback pCallback = NULL);
+extern "C" __declspec(dllimport) void UninitSocket(int nID);
+extern "C" __declspec(dllimport) int TCPConnect(int nID, int nTimeoutMs);
+extern "C" __declspec(dllimport) int TCPSend(int nID, sockaddr_in addr, char* szSendBuf);
+extern "C" __declspec(dllimport) int TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs);
 #else
-__declspec(dllimport) int __stdcall InitSocket(int nID, int nType, const char* szIniPath = NULL, RecvCallback pCallback = NULL);
-__declspec(dllimport) void __stdcall UninitSocket(int nID);
-__declspec(dllimport) int __stdcall TCPConnect(int nID, int nTimeoutMs);
-__declspec(dllimport) int __stdcall TCPSend(int nID, char* szSendBuf);
-__declspec(dllimport) int __stdcall TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs);
-#endif // USE_STATIC
+extern "C" __declspec(dllexport) int InitSocket(int nID, int nType, const char* szIniPath = NULL, RecvCallback pCallback = NULL);
+extern "C" __declspec(dllexport) void UninitSocket(int nID);
+extern "C" __declspec(dllexport) int TCPConnect(int nID, int nTimeoutMs);
+extern "C" __declspec(dllexport) int TCPSend(int nID, sockaddr_in addr, char* szSendBuf);
+extern "C" __declspec(dllexport) int TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs);
 #endif
-
-#ifdef STATIC_EXPORTS
-int __stdcall InitSocket(int nID, int nType, const char* szIniPath = NULL, RecvCallback pCallback = NULL);
-void __stdcall UninitSocket(int nID);
-int __stdcall TCPConnect(int nID, int nTimeoutMs);
-int __stdcall TCPSend(int nID, char* szSendBuf);
-int __stdcall TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs);
-#endif // STATIC_EXPORTS
 

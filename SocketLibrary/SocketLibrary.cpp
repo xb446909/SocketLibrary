@@ -7,6 +7,7 @@
 #include <fstream>
 #include <utility>
 #include <map>
+#include <vector>
 #include "SocketLibrary.h"
 
 using namespace std;
@@ -30,10 +31,43 @@ typedef struct _tagSocketParameter
 	char szIniPath[MAX_PATH];
 }SocketParameter, *pSocketParameter;
 
+typedef struct _tagRecvSocket
+{
+	SOCKET      AcceptSocket;
+	sockaddr_in addr;
+
+	bool operator==(const _tagRecvSocket& src)
+	{
+		return ((AcceptSocket == src.AcceptSocket) && 
+			(addr.sin_addr.S_un.S_addr == src.addr.sin_addr.S_un.S_addr) &&
+			(addr.sin_family == src.addr.sin_family) &&
+			(addr.sin_port == src.addr.sin_port) );
+	}
+}RecvSocket, *pRecvSocket;
+
 map<int, pSocketParameter> g_socketMap;
+vector<RecvSocket> g_vecRecvSocket;
+HANDLE g_mutex;
 
 BOOL BindSocket(int nID);
 DWORD WINAPI ListenReceiveThread( LPVOID lpParam );
+void DeleteAddr(sockaddr_in addr);
+bool CompareAddr(sockaddr_in addr1, sockaddr_in addr2);
+
+bool CompareAddr(sockaddr_in addr1, sockaddr_in addr2)
+{
+	return ((addr1.sin_addr.S_un.S_addr == addr2.sin_addr.S_un.S_addr) &&
+		(addr1.sin_family == addr2.sin_family) &&
+		(addr1.sin_port == addr2.sin_port));
+}
+
+void DeleteAddr(sockaddr_in addr)
+{
+	for (int i = 0; i < g_vecRecvSocket.size(); i++)
+	{
+		if (CompareAddr(addr, g_vecRecvSocket[i].addr)) g_vecRecvSocket.erase(g_vecRecvSocket.begin() + i);
+	}
+}
 
 pSocketParameter FindSockParam(int nID)
 {
@@ -45,7 +79,7 @@ pSocketParameter FindSockParam(int nID)
 	return it->second;
 }
 
-void __stdcall UninitSocket(int nID)
+void UninitSocket(int nID)
 {
 	pSocketParameter pSockParam;
 	pSockParam = FindSockParam(nID);
@@ -64,11 +98,11 @@ void __stdcall UninitSocket(int nID)
 	g_socketMap.erase(nID);
 }
 
-int __stdcall InitSocket(int nID, int nType, const char* szIniPath, RecvCallback pCallback)
+int InitSocket(int nID, int nType, const char* szIniPath, RecvCallback pCallback)
 {
 	int iResult;
 	WSADATA wsaData;
-
+	//是否已经有绑定的socket，若已经初始化则先卸载
 	pSocketParameter pSockParam = FindSockParam(nID);
 	if (pSockParam != nullptr)
 	{
@@ -134,7 +168,7 @@ int __stdcall InitSocket(int nID, int nType, const char* szIniPath, RecvCallback
 	return SOCK_SUCCESS;
 }
 
-int __stdcall TCPConnect(int nID, int nTimeoutMs)
+int TCPConnect(int nID, int nTimeoutMs)
 {
 	pSocketParameter pSockParam = FindSockParam(nID);
 	if (pSockParam == nullptr)
@@ -193,7 +227,7 @@ int __stdcall TCPConnect(int nID, int nTimeoutMs)
 	return SOCK_SUCCESS;
 }
 
-int __stdcall TCPSend(int nID, char* szSendBuf)
+int TCPSend(int nID, sockaddr_in addr, char* szSendBuf)
 {
 	pSocketParameter pSockParam = FindSockParam(nID);
 	if (pSockParam == nullptr)
@@ -226,15 +260,14 @@ int __stdcall TCPSend(int nID, char* szSendBuf)
 	return SOCK_SUCCESS;
 }
 
-int __stdcall TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs)
+
+int TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs)
 {
 	pSocketParameter pSockParam = FindSockParam(nID);
 	if (pSockParam == nullptr)
 	{
 		return SOCK_ERROR;
 	}
-	recv(pSockParam->ConnectSocket, szRecvBuf, nBufLen, 0);
-
 	fd_set r;
 	FD_ZERO(&r);
 	FD_SET(pSockParam->ConnectSocket, &r);
@@ -255,7 +288,6 @@ int __stdcall TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs)
 	}
 	return SOCK_SUCCESS;
 }
-
 
 BOOL BindSocket(int nID)
 {
@@ -301,7 +333,6 @@ BOOL BindSocket(int nID)
 	return TRUE;
 }
 
-
 DWORD WINAPI ListenReceiveThread( LPVOID lpParam )
 {
 	int nID = (int)lpParam;
@@ -331,7 +362,7 @@ DWORD WINAPI ListenReceiveThread( LPVOID lpParam )
 		return SOCK_ERROR;
 	}
 
-
+	RecvSocket RecvS;
 	while(1)
 	{
 		if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
@@ -363,7 +394,11 @@ DWORD WINAPI ListenReceiveThread( LPVOID lpParam )
 							if(pSockParam->pCallback != NULL)
 								pSockParam->pCallback(RECV_SOCKET, addrAccept, 0, NULL);
 							FD_SET(pSockParam->AcceptSocket, &fd);
-						}    
+
+							RecvS.AcceptSocket = pSockParam->AcceptSocket;
+							memcpy(&RecvS.addr, &addrAccept, sizeof(sockaddr_in));
+							g_vecRecvSocket.push_back(RecvS);
+						} 
 					}    
 					else //非服务器,接收数据(因为fd是读数据集)    
 					{    
@@ -389,7 +424,8 @@ DWORD WINAPI ListenReceiveThread( LPVOID lpParam )
 							if (pSockParam->pCallback != NULL)
 								pSockParam->pCallback(RECV_CLOSE, addrTemp, 0, NULL);
 							closesocket(fd.fd_array[i]);    
-							FD_CLR(fd.fd_array[i], &fd);    
+							FD_CLR(fd.fd_array[i], &fd);
+							DeleteAddr(addrTemp);
 							i--;        
 						}    
 

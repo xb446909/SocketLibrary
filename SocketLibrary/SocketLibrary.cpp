@@ -38,10 +38,10 @@ typedef struct _tagRecvSocket
 
 	bool operator==(const _tagRecvSocket& src)
 	{
-		return ((AcceptSocket == src.AcceptSocket) && 
+		return ((AcceptSocket == src.AcceptSocket) &&
 			(addr.sin_addr.S_un.S_addr == src.addr.sin_addr.S_un.S_addr) &&
 			(addr.sin_family == src.addr.sin_family) &&
-			(addr.sin_port == src.addr.sin_port) );
+			(addr.sin_port == src.addr.sin_port));
 	}
 }RecvSocket, *pRecvSocket;
 
@@ -49,8 +49,9 @@ map<int, pSocketParameter> g_socketMap;
 vector<RecvSocket> g_vecRecvSocket;
 HANDLE g_mutex;
 
-BOOL BindSocket(int nID);
-DWORD WINAPI ListenReceiveThread( LPVOID lpParam );
+BOOL BindSocket(int nID, int nType);
+DWORD WINAPI TCPListenReceiveThread(LPVOID lpParam);
+DWORD WINAPI UDPReceiveThread(LPVOID lpParam);
 void DeleteAddr(sockaddr_in addr);
 bool CompareAddr(sockaddr_in addr1, sockaddr_in addr2);
 
@@ -81,9 +82,11 @@ pSocketParameter FindSockParam(int nID)
 
 void UninitSocket(int nID)
 {
+	WaitForSingleObject(g_mutex, INFINITE);
+
 	pSocketParameter pSockParam;
 	pSockParam = FindSockParam(nID);
-	if (pSockParam == nullptr )
+	if (pSockParam == nullptr)
 	{
 		return;
 	}
@@ -94,8 +97,11 @@ void UninitSocket(int nID)
 	closesocket(pSockParam->ConnectSocket);
 	WSACleanup();
 	pSockParam->bOK = FALSE;
+
 	delete pSockParam;
 	g_socketMap.erase(nID);
+
+	ReleaseMutex(g_mutex);
 }
 
 int InitSocket(int nID, int nType, const char* szIniPath, RecvCallback pCallback)
@@ -104,27 +110,26 @@ int InitSocket(int nID, int nType, const char* szIniPath, RecvCallback pCallback
 	WSADATA wsaData;
 	//是否已经有绑定的socket，若已经初始化则先卸载
 	pSocketParameter pSockParam = FindSockParam(nID);
+	g_mutex = CreateMutex(NULL, FALSE, NULL);
 	if (pSockParam != nullptr)
 	{
 		UninitSocket(nID);
 	}
-
 	pSockParam = new SocketParameter;
 
 	//----------------------
 	// Initialize Winsock
-	iResult = WSAStartup(MAKEWORD(2,2), &wsaData);
+	iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
 	if (iResult != NO_ERROR) {
 		fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
 		fs << "Initialize socket error: " << WSAGetLastError() << endl;
 		return SOCK_ERROR;
 	}
-
 	switch (nType)
 	{
 	case TCP_SERVER:
 	case TCP_CLIENT:
-		pSockParam->ConnectSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+		pSockParam->ConnectSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);//(S1)
 		break;
 	case UDP_SERVER:
 	case UDP_CLIENT:
@@ -134,6 +139,7 @@ int InitSocket(int nID, int nType, const char* szIniPath, RecvCallback pCallback
 		WSACleanup();
 		fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
 		fs << "Socket type is error" << endl;
+
 		return SOCK_ERROR;
 	}
 
@@ -153,15 +159,20 @@ int InitSocket(int nID, int nType, const char* szIniPath, RecvCallback pCallback
 	{
 		strcpy(pSockParam->szIniPath, ".\\SocketConfig.ini");
 	}
+
 	pSockParam->pCallback = pCallback;
 	pSockParam->nType = nType;
 	g_socketMap.insert(pair<int, pSocketParameter>(nID, pSockParam));
 
-	if (nType == TCP_SERVER)
+	if (nType == TCP_SERVER || nType == UDP_SERVER)
 	{
 		BOOL bOptVal = TRUE;
-		setsockopt(pSockParam->ConnectSocket, SOL_SOCKET, SO_REUSEADDR, (char *)&bOptVal, sizeof(bOptVal));
-		if (BindSocket(nID) == FALSE) return SOCK_ERROR;
+		if (nType == TCP_SERVER)
+			setsockopt(pSockParam->ConnectSocket, SOL_SOCKET, SO_REUSEADDR, (char *)&bOptVal, sizeof(bOptVal));
+		else
+			setsockopt(pSockParam->ConnectSocket, SOL_SOCKET, SO_BROADCAST, (char *)&bOptVal, sizeof(BOOL));
+
+		if (BindSocket(nID, nType) == FALSE) return SOCK_ERROR; //(S2, S3)
 		pSockParam->bOK = TRUE;
 	}
 
@@ -181,9 +192,9 @@ int TCPConnect(int nID, int nTimeoutMs)
 		fs << "The socket type is incorrect" << endl;
 		return SOCK_ERROR;
 	}
-	char strIpAddr[64] = {0};
-	char strPort[64] = {0};
-	char strApp[128] = {0};
+	char strIpAddr[64] = { 0 };
+	char strPort[64] = { 0 };
+	char strApp[128] = { 0 };
 	sprintf(strApp, "TCP Client%d", nID);
 
 	GetPrivateProfileStringA(strApp, "Server IP Address", "127.0.0.1", strIpAddr, 63, pSockParam->szIniPath);
@@ -191,13 +202,13 @@ int TCPConnect(int nID, int nTimeoutMs)
 	GetPrivateProfileStringA(strApp, "Server Port", "10000", strPort, 63, pSockParam->szIniPath);
 	WritePrivateProfileStringA(strApp, "Server Port", strPort, pSockParam->szIniPath);
 
-	struct sockaddr_in clientService; 
+	struct sockaddr_in clientService;
 
 	//----------------------
 	// The sockaddr_in structure specifies the address family,
 	// IP address, and port of the server to be connected to.
 	clientService.sin_family = AF_INET;
-	clientService.sin_addr.s_addr = inet_addr( strIpAddr );
+	clientService.sin_addr.s_addr = inet_addr(strIpAddr);
 	clientService.sin_port = htons(atoi(strPort));
 
 	u_long iMode = 1;
@@ -205,7 +216,7 @@ int TCPConnect(int nID, int nTimeoutMs)
 
 	//----------------------
 	// Connect to server.
-	connect(pSockParam->ConnectSocket, (SOCKADDR*) &clientService, sizeof(clientService) );
+	connect(pSockParam->ConnectSocket, (SOCKADDR*)&clientService, sizeof(clientService));
 
 	fd_set r;
 	FD_ZERO(&r);
@@ -245,12 +256,38 @@ int TCPSend(int nID, sockaddr_in addr, char* szSendBuf)
 			return SOCK_ERROR;
 		}
 	}
-	int iResult;
-	if (pSockParam->nType == TCP_SERVER)
-		iResult = send(pSockParam->AcceptSocket, szSendBuf, strlen(szSendBuf), 0);
-	else
-		iResult = send(pSockParam->ConnectSocket, szSendBuf, strlen(szSendBuf), 0);
-	if (iResult == SOCKET_ERROR) 
+	int iResult, res;
+	switch (pSockParam->nType)
+	{
+	case TCP_SERVER:
+		SOCKET AcceptSocket;
+		res = SOCK_ERROR;
+		for (int i = 0; i < g_vecRecvSocket.size(); i++)
+		{
+			if (CompareAddr(addr, g_vecRecvSocket[i].addr))
+			{
+				AcceptSocket = g_vecRecvSocket[i].AcceptSocket;
+				res = 0;
+			}
+		}
+		if (res == SOCK_ERROR)
+			return SOCK_ERROR;
+		iResult = send(AcceptSocket, szSendBuf, strlen(szSendBuf) + 1, 0);
+		break;
+
+	case TCP_CLIENT:
+		iResult = send(pSockParam->ConnectSocket, szSendBuf, strlen(szSendBuf) + 1, 0);
+		break;
+
+	case UDP_CLIENT:
+	case UDP_SERVER:
+		iResult = sendto(pSockParam->ConnectSocket, szSendBuf, strlen(szSendBuf) + 1, 0, (SOCKADDR *)&addr, sizeof(SOCKADDR));
+		break;
+	default:
+		break;
+	}
+
+	if (iResult == SOCKET_ERROR)
 	{
 		UninitSocket(nID);
 		fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
@@ -270,7 +307,9 @@ int TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs)
 	}
 	fd_set r;
 	FD_ZERO(&r);
+	//	recv(pSockParam->ConnectSocket, szRecvBuf, nBufLen, 0);
 	FD_SET(pSockParam->ConnectSocket, &r);
+
 	struct timeval timeout;
 	timeout.tv_sec = nTimeoutMs / 1000;
 	timeout.tv_usec = (nTimeoutMs % 1000) * 1000;
@@ -284,12 +323,22 @@ int TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs)
 	}
 	else
 	{
-		recv(pSockParam->ConnectSocket, szRecvBuf, nBufLen, 0);
+		if (pSockParam->nType == TCP_CLIENT)
+		{
+			recv(pSockParam->ConnectSocket, szRecvBuf, nBufLen, 0);
+		}
+		else if (pSockParam->nType == UDP_CLIENT)
+		{
+			sockaddr_in addrAccept;
+			int nAcceptLen = sizeof(addrAccept);
+			memset(&addrAccept, 0, sizeof(addrAccept));
+			recvfrom(pSockParam->ConnectSocket, szRecvBuf, INT_DATABUFFER_SIZE, 0, (SOCKADDR*)&addrAccept, &nAcceptLen);
+		}
 	}
 	return SOCK_SUCCESS;
 }
 
-BOOL BindSocket(int nID)
+BOOL BindSocket(int nID, int nType)
 {
 	pSocketParameter pSockParam = FindSockParam(nID);
 	if (pSockParam == nullptr)
@@ -297,17 +346,20 @@ BOOL BindSocket(int nID)
 		return FALSE;
 	}
 
-	char strPort[64] = {0};
-	char strIp[64] = {0};
-	char strApp[128] = {0};
-	sprintf(strApp, "TCP Server%d", nID);
+	char strPort[64] = { 0 };
+	char strIp[64] = { 0 };
+	char strApp[128] = { 0 };
+	if (nType == TCP_SERVER)
+		sprintf(strApp, "TCP Server%d", nID);
+	else
+		sprintf(strApp, "UDP Server%d", nID);
 
 	GetPrivateProfileStringA(strApp, "Server Ip", "127.0.0.1", strIp, 63, pSockParam->szIniPath);
 	WritePrivateProfileStringA(strApp, "Server Ip", strIp, pSockParam->szIniPath);
 	GetPrivateProfileStringA(strApp, "Server Port", "10000", strPort, 63, pSockParam->szIniPath);
 	WritePrivateProfileStringA(strApp, "Server Port", strPort, pSockParam->szIniPath);
 
-	struct sockaddr_in clientService; 
+	struct sockaddr_in clientService;
 
 	//----------------------
 	// The sockaddr_in structure specifies the address family,
@@ -317,23 +369,73 @@ BOOL BindSocket(int nID)
 	clientService.sin_port = htons(atoi(strPort));
 
 	//----------------------
-	// Bind the socket.
-	if (bind(pSockParam->ConnectSocket,
-		(SOCKADDR*) &clientService, 
-		sizeof(clientService)) == SOCKET_ERROR) {
-			fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
-			fs << "Bind socket error: " << WSAGetLastError() << endl;
-			UninitSocket(nID);
-			return FALSE;
+	// Bind the socket.//(S2)
+	if (bind(pSockParam->ConnectSocket, (SOCKADDR*)&clientService, sizeof(clientService)) == SOCKET_ERROR)
+	{
+		fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
+		fs << "Bind socket error: " << WSAGetLastError() << endl;
+		UninitSocket(nID);
+		return FALSE;
 	}
-	HANDLE hThread = CreateThread(NULL, 0, ListenReceiveThread, (LPVOID)nID, 0, &pSockParam->dwThreadID);
+	if (nType == TCP_SERVER)
+	{
+		HANDLE hThread = CreateThread(NULL, 0, TCPListenReceiveThread, (LPVOID)nID, 0, &pSockParam->dwThreadID);//(S3)
+	}
+	else
+	{
+		HANDLE hThread = CreateThread(NULL, 0, UDPReceiveThread, (LPVOID)nID, 0, &pSockParam->dwThreadID);//(S3)
+	}
 	WaitForSingleObject(pSockParam->hEvent, INFINITE);
 	ResetEvent(pSockParam->hEvent);
 
 	return TRUE;
 }
 
-DWORD WINAPI ListenReceiveThread( LPVOID lpParam )
+DWORD WINAPI UDPReceiveThread(LPVOID lpParam)
+{
+	sockaddr_in addrAccept;
+	int nAcceptLen = sizeof(addrAccept);
+	int nRecvRes;
+	int nID = (int)lpParam;
+	pSocketParameter pSockParam = FindSockParam(nID);
+	if (pSockParam == nullptr)
+	{
+		return FALSE;
+	}
+	MSG msg;
+	PeekMessage(&msg, NULL, WM_USER, WM_USER, PM_NOREMOVE);
+	SetEvent(pSockParam->hEvent);
+
+	while (1)
+	{
+		if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+		{
+			if (msg.message == UM_QUIT)
+			{
+				UninitSocket(nID);
+				return SOCK_SUCCESS;
+			}
+		}
+		memset(&addrAccept, 0, sizeof(addrAccept));
+		nRecvRes = recvfrom(pSockParam->ConnectSocket, pSockParam->szDataBuff, 100, 0, (sockaddr *)&addrAccept, &nAcceptLen);
+		if (nRecvRes == SOCK_ERROR)
+		{
+			if (pSockParam->pCallback != NULL)
+				pSockParam->pCallback(RECV_ERROR, addrAccept, 0, NULL);
+			continue;
+		}
+
+		if (0 < nRecvRes)
+		{
+			//打印接收的数据    
+			if (pSockParam->pCallback != NULL)
+				pSockParam->pCallback(RECV_DATA, addrAccept, nRecvRes, pSockParam->szDataBuff);
+		}
+	}
+	return SOCK_SUCCESS;
+}
+
+DWORD WINAPI TCPListenReceiveThread(LPVOID lpParam)
 {
 	int nID = (int)lpParam;
 	pSocketParameter pSockParam = FindSockParam(nID);
@@ -346,8 +448,8 @@ DWORD WINAPI ListenReceiveThread( LPVOID lpParam )
 	PeekMessage(&msg, NULL, WM_USER, WM_USER, PM_NOREMOVE);
 	SetEvent(pSockParam->hEvent);
 
-	fd_set fd;    
-	FD_ZERO(&fd);    
+	fd_set fd;
+	FD_ZERO(&fd);
 	FD_SET(pSockParam->ConnectSocket, &fd);
 
 	int iResult;
@@ -356,14 +458,14 @@ DWORD WINAPI ListenReceiveThread( LPVOID lpParam )
 	int iAcceptLen = sizeof(addrAccept);
 	int iTempLen = sizeof(addrTemp);
 
-	if (listen(pSockParam->ConnectSocket, SOMAXCONN) == SOCKET_ERROR)
+	if (listen(pSockParam->ConnectSocket, SOMAXCONN) == SOCKET_ERROR)//(S3)
 	{
 		UninitSocket(nID);
 		return SOCK_ERROR;
 	}
 
 	RecvSocket RecvS;
-	while(1)
+	while (1)
 	{
 		if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
 		{
@@ -378,73 +480,74 @@ DWORD WINAPI ListenReceiveThread( LPVOID lpParam )
 		timeout.tv_sec = 0;
 		timeout.tv_usec = 50000;
 		iResult = select(0, &fdOld, NULL, NULL, &timeout);
-		if (0 < iResult)    
-		{    
-			for(int i = 0;i < fd.fd_count; i++)
-			{    
+		if (0 < iResult)
+		{
+			for (int i = 0; i < fd.fd_count; i++)
+			{
 				if (FD_ISSET(fd.fd_array[i], &fdOld))
-				{    
-					//如果socket是服务器，则接收连接    
+				{
+					//如果socket是服务器，则接收连接  
 					if (fd.fd_array[i] == pSockParam->ConnectSocket)
-					{    
-						memset(&addrAccept, 0, sizeof(addrAccept)); 
-						pSockParam->AcceptSocket = accept(pSockParam->ConnectSocket, (sockaddr *)&addrAccept, &iAcceptLen);
+					{
+						memset(&addrAccept, 0, sizeof(addrAccept));
+						pSockParam->AcceptSocket = accept(pSockParam->ConnectSocket, (sockaddr *)&addrAccept, &iAcceptLen);//(S4)
+
 						if (INVALID_SOCKET != pSockParam->AcceptSocket)
 						{
-							if(pSockParam->pCallback != NULL)
+							if (pSockParam->pCallback != NULL)
 								pSockParam->pCallback(RECV_SOCKET, addrAccept, 0, NULL);
 							FD_SET(pSockParam->AcceptSocket, &fd);
 
 							RecvS.AcceptSocket = pSockParam->AcceptSocket;
 							memcpy(&RecvS.addr, &addrAccept, sizeof(sockaddr_in));
 							g_vecRecvSocket.push_back(RecvS);
-						} 
-					}    
+						}
+					}
 					else //非服务器,接收数据(因为fd是读数据集)    
-					{    
+					{
 						memset(pSockParam->szDataBuff, 0, INT_DATABUFFER_SIZE);
 						iRecvSize = recv(fd.fd_array[i], pSockParam->szDataBuff, INT_DATABUFFER_SIZE, 0);
 						memset(&addrTemp, 0, sizeof(addrTemp));
-						iTempLen = sizeof(addrTemp);    
+						iTempLen = sizeof(addrTemp);
 						getpeername(fd.fd_array[i], (sockaddr *)&addrTemp, &iTempLen);
 
-						if (SOCKET_ERROR == iRecvSize)    
+						if (SOCKET_ERROR == iRecvSize)
 						{
 							if (pSockParam->pCallback != NULL)
 								pSockParam->pCallback(RECV_ERROR, addrTemp, 0, NULL);
 							closesocket(fd.fd_array[i]);
-							FD_CLR(fd.fd_array[i],&fd);    
-							i--;    
-							continue;    
-						}    
+							FD_CLR(fd.fd_array[i], &fd);
+							i--;
+							continue;
+						}
 
-						if (0 == iRecvSize)    
-						{    
+						if (0 == iRecvSize)
+						{
 							//客户socket关闭    
 							if (pSockParam->pCallback != NULL)
 								pSockParam->pCallback(RECV_CLOSE, addrTemp, 0, NULL);
-							closesocket(fd.fd_array[i]);    
+							closesocket(fd.fd_array[i]);
 							FD_CLR(fd.fd_array[i], &fd);
 							DeleteAddr(addrTemp);
-							i--;        
-						}    
+							i--;
+						}
 
-						if (0 < iRecvSize)    
-						{    
+						if (0 < iRecvSize)
+						{
 							//打印接收的数据    
 							if (pSockParam->pCallback != NULL)
 								pSockParam->pCallback(RECV_DATA, addrTemp, iRecvSize, pSockParam->szDataBuff);
-						}    
-					}       
-				}    
-			}    
-		}    
-		else if (SOCKET_ERROR == iResult)    
-		{    
-			WSACleanup();     
+						}
+					}
+				}
+			}
+		}
+		else if (SOCKET_ERROR == iResult)
+		{
+			WSACleanup();
 			fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
 			fs << "Failed to select socket, error: " << WSAGetLastError() << endl;
-			Sleep(100);    
+			Sleep(100);
 		}
 	}
 	return SOCK_SUCCESS;

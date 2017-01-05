@@ -18,16 +18,9 @@
 
 typedef int(*RecvCallback)(int, sockaddr_in, int, char*);
 
-#ifndef SOCKETLIBRARY_EXPORTS
-extern "C" __declspec(dllimport) int InitSocket(int nID, int nType, const char* szIniPath = NULL, RecvCallback pCallback = NULL);
-extern "C" __declspec(dllimport) void UninitSocket(int nID);
-extern "C" __declspec(dllimport) int TCPConnect(int nID, int nTimeoutMs);
-extern "C" __declspec(dllimport) int TCPSend(int nID, sockaddr_in addr, char* szSendBuf);
-extern "C" __declspec(dllimport) int TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs);
-#else
-extern "C" __declspec(dllexport) int InitSocket(int nID, int nType, const char* szIniPath = NULL, RecvCallback pCallback = NULL);
-extern "C" __declspec(dllexport) void UninitSocket(int nID);
-extern "C" __declspec(dllexport) int TCPConnect(int nID, int nTimeoutMs);
-extern "C" __declspec(dllexport) int TCPSend(int nID, sockaddr_in addr, char* szSendBuf);
-extern "C" __declspec(dllexport) int TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs);
-#endif
+
+int InitSocket(int nID, int nType, const char* szIniPath = NULL, RecvCallback pCallback = NULL);
+void UninitSocket(int nID);
+int TCPConnect(int nID, int nTimeoutMs);
+int TCPSend(int nID, sockaddr_in addr, char* szSendBuf);
+int TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs);

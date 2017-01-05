@@ -18,13 +18,14 @@
 #define SOCK_ERROR		-1
 #define SOCK_TIMEOUT	-2
 
-typedef int (*RecvCallback)(int, sockaddr_in, int, char*);
+typedef int(*RecvCallback)(int, sockaddr_in, int, char*);
 
-typedef int (*fInitSocket)(int, int, const char*, RecvCallback);
-typedef void (*fUninitSocket)(int);
-typedef int (*fTCPConnect)(int, int);
-typedef int (*fTCPSend)(int, sockaddr_in addr, char*);//server给指定的client发消息时，client的地址为addr
-typedef int (*fTCPRecv)(int, char*, int, int);
+#if USE_STATIC
+typedef int(*fInitSocket)(int, int, const char*, RecvCallback);
+typedef void(*fUninitSocket)(int);
+typedef int(*fTCPConnect)(int, int);
+typedef int(*fTCPSend)(int, sockaddr_in addr, char*);//server给指定的client发消息时，client的地址为addr
+typedef int(*fTCPRecv)(int, char*, int, int);
 
 #ifndef SOCKETLIBRARY_EXPORTS
 extern "C" __declspec(dllimport) int InitSocket(int nID, int nType, const char* szIniPath = NULL, RecvCallback pCallback = NULL);
@@ -39,4 +40,16 @@ extern "C" __declspec(dllexport) int TCPConnect(int nID, int nTimeoutMs);
 extern "C" __declspec(dllexport) int TCPSend(int nID, sockaddr_in addr, char* szSendBuf);
 extern "C" __declspec(dllexport) int TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs);
 #endif
+#else
+typedef int(__stdcall *fInitSocket)(int, int, const char*, RecvCallback);
+typedef void(__stdcall *fUninitSocket)(int);
+typedef int(__stdcall *fTCPConnect)(int, int);
+typedef int(__stdcall *fTCPSend)(int, sockaddr_in addr, char*);//server给指定的client发消息时，client的地址为addr
+typedef int(__stdcall *fTCPRecv)(int, char*, int, int);
+#endif
+
+
+
+
+
 

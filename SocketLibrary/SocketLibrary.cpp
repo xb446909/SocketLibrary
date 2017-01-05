@@ -80,7 +80,7 @@ pSocketParameter FindSockParam(int nID)
 	return it->second;
 }
 
-void __stdcall UninitSocket(int nID)
+void UninitSocket(int nID)
 {
 	WaitForSingleObject(g_mutex, INFINITE);
 
@@ -104,7 +104,7 @@ void __stdcall UninitSocket(int nID)
 	ReleaseMutex(g_mutex);
 }
 
-int __stdcall InitSocket(int nID, int nType, const char* szIniPath, RecvCallback pCallback)
+int InitSocket(int nID, int nType, const char* szIniPath, RecvCallback pCallback)
 {
 	int iResult;
 	WSADATA wsaData;
@@ -179,7 +179,7 @@ int __stdcall InitSocket(int nID, int nType, const char* szIniPath, RecvCallback
 	return SOCK_SUCCESS;
 }
 
-int __stdcall TCPConnect(int nID, int nTimeoutMs)
+int TCPConnect(int nID, int nTimeoutMs)
 {
 	pSocketParameter pSockParam = FindSockParam(nID);
 	if (pSockParam == nullptr)
@@ -238,7 +238,7 @@ int __stdcall TCPConnect(int nID, int nTimeoutMs)
 	return SOCK_SUCCESS;
 }
 
-int __stdcall TCPSend(int nID, sockaddr_in addr, char* szSendBuf)
+int TCPSend(int nID, sockaddr_in addr, char* szSendBuf)
 {
 	pSocketParameter pSockParam = FindSockParam(nID);
 	if (pSockParam == nullptr)
@@ -298,7 +298,7 @@ int __stdcall TCPSend(int nID, sockaddr_in addr, char* szSendBuf)
 }
 
 
-int __stdcall TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs)
+int TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs)
 {
 	pSocketParameter pSockParam = FindSockParam(nID);
 	if (pSockParam == nullptr)

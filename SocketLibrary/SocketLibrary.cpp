@@ -64,7 +64,7 @@ bool CompareAddr(sockaddr_in addr1, sockaddr_in addr2)
 
 void DeleteAddr(sockaddr_in addr)
 {
-	for (int i = 0; i < g_vecRecvSocket.size(); i++)
+	for (size_t i = 0; i < g_vecRecvSocket.size(); i++)
 	{
 		if (CompareAddr(addr, g_vecRecvSocket[i].addr)) g_vecRecvSocket.erase(g_vecRecvSocket.begin() + i);
 	}
@@ -121,7 +121,7 @@ int InitSocket(int nID, int nType, const char* szIniPath, RecvCallback pCallback
 	// Initialize Winsock
 	iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
 	if (iResult != NO_ERROR) {
-		fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
+		fstream fs(".\\SocketErrorLog.txt", ios::out | ios::in | ios::app);
 		fs << "Initialize socket error: " << WSAGetLastError() << endl;
 		return SOCK_ERROR;
 	}
@@ -137,7 +137,7 @@ int InitSocket(int nID, int nType, const char* szIniPath, RecvCallback pCallback
 		break;
 	default:
 		WSACleanup();
-		fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
+		fstream fs(".\\SocketErrorLog.txt", ios::out | ios::in | ios::app);
 		fs << "Socket type is error" << endl;
 
 		return SOCK_ERROR;
@@ -145,7 +145,7 @@ int InitSocket(int nID, int nType, const char* szIniPath, RecvCallback pCallback
 
 	if (pSockParam->ConnectSocket == INVALID_SOCKET)
 	{
-		fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
+		fstream fs(".\\SocketErrorLog.txt", ios::out | ios::in | ios::app);
 		fs << "Create socket error: " << WSAGetLastError() << endl;
 		WSACleanup();
 		return SOCK_ERROR;
@@ -188,7 +188,7 @@ int TCPConnect(int nID, int nTimeoutMs)
 	}
 	if (pSockParam->nType != TCP_CLIENT)
 	{
-		fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
+		fstream fs(".\\SocketErrorLog.txt", ios::out | ios::in | ios::app);
 		fs << "The socket type is incorrect" << endl;
 		return SOCK_ERROR;
 	}
@@ -228,7 +228,7 @@ int TCPConnect(int nID, int nTimeoutMs)
 
 	if (ret <= 0)
 	{
-		fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
+		fstream fs(".\\SocketErrorLog.txt", ios::out | ios::in | ios::app);
 		fs << "Connect server timeout" << endl;
 		closesocket(pSockParam->ConnectSocket);
 		WSACleanup();
@@ -238,7 +238,7 @@ int TCPConnect(int nID, int nTimeoutMs)
 	return SOCK_SUCCESS;
 }
 
-int TCPSend(int nID, sockaddr_in addr, char* szSendBuf)
+int TCPSend(int nID, char* szDstIP, int nDstPort, char* szSendBuf)
 {
 	pSocketParameter pSockParam = FindSockParam(nID);
 	if (pSockParam == nullptr)
@@ -247,7 +247,7 @@ int TCPSend(int nID, sockaddr_in addr, char* szSendBuf)
 	}
 	if (!pSockParam->bOK)
 	{
-		fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
+		fstream fs(".\\SocketErrorLog.txt", ios::out | ios::in | ios::app);
 		fs << "Send error, socket is closed, first time" << endl;
 		TCPConnect(nID, 1000);
 		if (!pSockParam->bOK)
@@ -257,46 +257,95 @@ int TCPSend(int nID, sockaddr_in addr, char* szSendBuf)
 		}
 	}
 	int iResult, res;
+	sockaddr_in addr;
+	memset(&addr, 0, sizeof(addr));
+
 	switch (pSockParam->nType)
 	{
 	case TCP_SERVER:
-		SOCKET AcceptSocket;
-		res = SOCK_ERROR;
-		for (int i = 0; i < g_vecRecvSocket.size(); i++)
+		if (szDstIP && strlen(szDstIP) > 0)
 		{
-			if (CompareAddr(addr, g_vecRecvSocket[i].addr))
+			addr.sin_family = AF_INET;
+			addr.sin_addr.s_addr = inet_addr(szDstIP);
+			addr.sin_port = htons(nDstPort);
+			SOCKET AcceptSocket;
+			res = SOCK_ERROR;
+			for (size_t i = 0; i < g_vecRecvSocket.size(); i++)
 			{
-				AcceptSocket = g_vecRecvSocket[i].AcceptSocket;
-				res = 0;
+				if (CompareAddr(addr, g_vecRecvSocket[i].addr))
+				{
+					AcceptSocket = g_vecRecvSocket[i].AcceptSocket;
+					res = 0;
+				}
 			}
+			if (res == SOCK_ERROR)
+				return SOCK_ERROR;
+			iResult = send(AcceptSocket, szSendBuf, strlen(szSendBuf) + 1, 0);
 		}
-		if (res == SOCK_ERROR)
-			return SOCK_ERROR;
-		iResult = send(AcceptSocket, szSendBuf, strlen(szSendBuf) + 1, 0);
 		break;
 
 	case TCP_CLIENT:
 		iResult = send(pSockParam->ConnectSocket, szSendBuf, strlen(szSendBuf) + 1, 0);
 		break;
 
-	case UDP_CLIENT:
-	case UDP_SERVER:
-		iResult = sendto(pSockParam->ConnectSocket, szSendBuf, strlen(szSendBuf) + 1, 0, (SOCKADDR *)&addr, sizeof(SOCKADDR));
-		break;
 	default:
 		break;
 	}
 
+
 	if (iResult == SOCKET_ERROR)
 	{
 		UninitSocket(nID);
-		fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
+		fstream fs(".\\SocketErrorLog.txt", ios::out | ios::in | ios::app);
 		fs << "Send error! error code:" << WSAGetLastError() << endl;
 		return SOCK_ERROR;
 	}
 	return SOCK_SUCCESS;
 }
 
+int UDPSend(int nID, char* szDstIP, int nDstPort, char* szSendBuf)
+{
+	pSocketParameter pSockParam = FindSockParam(nID);
+	if (pSockParam == nullptr)
+	{
+		return SOCK_ERROR;
+	}
+
+	int iResult, res;
+	sockaddr_in addr;
+	memset(&addr, 0, sizeof(addr));
+	if (szDstIP && strlen(szDstIP) > 0)
+	{
+		addr.sin_family = AF_INET;
+		addr.sin_addr.s_addr = inet_addr(szDstIP);
+		addr.sin_port = htons(nDstPort);
+
+		switch (pSockParam->nType)
+		{
+		case UDP_CLIENT:
+		case UDP_SERVER:
+			iResult = sendto(pSockParam->ConnectSocket, szSendBuf, strlen(szSendBuf) + 1, 0, (SOCKADDR *)&addr, sizeof(SOCKADDR));
+			break;
+		default:
+			break;
+		}
+	}
+	else
+	{
+		fstream fs(".\\SocketErrorLog.txt", ios::out | ios::in | ios::app);
+		fs << "Send error! error code: input address error!"<< endl;
+		return SOCK_ERROR;
+	}
+
+	if (iResult == SOCKET_ERROR)
+	{
+		UninitSocket(nID);
+		fstream fs(".\\SocketErrorLog.txt", ios::out | ios::in | ios::app);
+		fs << "Send error! error code:" << WSAGetLastError() << endl;
+		return SOCK_ERROR;
+	}
+	return SOCK_SUCCESS;
+}
 
 int TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs)
 {
@@ -317,7 +366,7 @@ int TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs)
 
 	if (ret <= 0)
 	{
-		fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
+		fstream fs(".\\SocketErrorLog.txt", ios::out | ios::in | ios::app);
 		fs << "Receive timeout!" << endl;
 		return SOCK_TIMEOUT;
 	}
@@ -327,11 +376,40 @@ int TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs)
 		{
 			recv(pSockParam->ConnectSocket, szRecvBuf, nBufLen, 0);
 		}
-		else if (pSockParam->nType == UDP_CLIENT)
+	}
+	return SOCK_SUCCESS;
+}
+
+int UDPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs)
+{
+	pSocketParameter pSockParam = FindSockParam(nID);
+	if (pSockParam == nullptr)
+	{
+		return SOCK_ERROR;
+	}
+	fd_set r;
+	FD_ZERO(&r);
+    FD_SET(pSockParam->ConnectSocket, &r);
+
+	struct timeval timeout;
+	timeout.tv_sec = nTimeoutMs / 1000;
+	timeout.tv_usec = (nTimeoutMs % 1000) * 1000;
+	int ret = select(0, &r, 0, 0, &timeout);
+
+	if (ret <= 0)
+	{
+		fstream fs(".\\SocketErrorLog.txt", ios::out | ios::in | ios::app);
+		fs << "Receive timeout!" << endl;
+		return SOCK_TIMEOUT;
+	}
+	else
+	{
+		if (pSockParam->nType == UDP_CLIENT)
 		{
 			sockaddr_in addrAccept;
 			int nAcceptLen = sizeof(addrAccept);
 			memset(&addrAccept, 0, sizeof(addrAccept));
+			memset(szRecvBuf, 0, INT_DATABUFFER_SIZE);
 			recvfrom(pSockParam->ConnectSocket, szRecvBuf, INT_DATABUFFER_SIZE, 0, (SOCKADDR*)&addrAccept, &nAcceptLen);
 		}
 	}
@@ -372,7 +450,7 @@ BOOL BindSocket(int nID, int nType)
 	// Bind the socket.//(S2)
 	if (bind(pSockParam->ConnectSocket, (SOCKADDR*)&clientService, sizeof(clientService)) == SOCKET_ERROR)
 	{
-		fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
+		fstream fs(".\\SocketErrorLog.txt", ios::out | ios::in | ios::app);
 		fs << "Bind socket error: " << WSAGetLastError() << endl;
 		UninitSocket(nID);
 		return FALSE;
@@ -417,6 +495,8 @@ DWORD WINAPI UDPReceiveThread(LPVOID lpParam)
 			}
 		}
 		memset(&addrAccept, 0, sizeof(addrAccept));
+		memset(pSockParam->szDataBuff, 0, INT_DATABUFFER_SIZE);
+
 		nRecvRes = recvfrom(pSockParam->ConnectSocket, pSockParam->szDataBuff, 100, 0, (sockaddr *)&addrAccept, &nAcceptLen);
 		if (nRecvRes == SOCK_ERROR)
 		{
@@ -427,7 +507,7 @@ DWORD WINAPI UDPReceiveThread(LPVOID lpParam)
 
 		if (0 < nRecvRes)
 		{
-			//打印接收的数据    
+			//打印接收的数据 
 			if (pSockParam->pCallback != NULL)
 				pSockParam->pCallback(RECV_DATA, addrAccept, nRecvRes, pSockParam->szDataBuff);
 		}
@@ -482,7 +562,7 @@ DWORD WINAPI TCPListenReceiveThread(LPVOID lpParam)
 		iResult = select(0, &fdOld, NULL, NULL, &timeout);
 		if (0 < iResult)
 		{
-			for (int i = 0; i < fd.fd_count; i++)
+			for (size_t i = 0; i < fd.fd_count; i++)
 			{
 				if (FD_ISSET(fd.fd_array[i], &fdOld))
 				{
@@ -545,7 +625,7 @@ DWORD WINAPI TCPListenReceiveThread(LPVOID lpParam)
 		else if (SOCKET_ERROR == iResult)
 		{
 			WSACleanup();
-			fstream fs(".\\ErrorLog.txt", ios::out | ios::in | ios::app);
+			fstream fs(".\\SocketErrorLog.txt", ios::out | ios::in | ios::app);
 			fs << "Failed to select socket, error: " << WSAGetLastError() << endl;
 			Sleep(100);
 		}

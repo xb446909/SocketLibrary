@@ -238,7 +238,7 @@ int __stdcall TCPConnect(int nID, int nTimeoutMs)
 	return SOCK_SUCCESS;
 }
 
-int __stdcall TCPSend(int nID, char* szDstIP, int nDstPort, char* szSendBuf)
+int __stdcall TCPSend(int nID, char* szSendBuf, char* szDstIP, int nDstPort)
 {
 	pSocketParameter pSockParam = FindSockParam(nID);
 	if (pSockParam == nullptr)
@@ -303,7 +303,7 @@ int __stdcall TCPSend(int nID, char* szDstIP, int nDstPort, char* szSendBuf)
 	return SOCK_SUCCESS;
 }
 
-int __stdcall UDPSend(int nID, char* szDstIP, int nDstPort, char* szSendBuf)
+int __stdcall UDPSend(int nID, char* szSendBuf, char* szDstIP, int nDstPort)
 {
 	pSocketParameter pSockParam = FindSockParam(nID);
 	if (pSockParam == nullptr)

@@ -16,15 +16,15 @@
 #define SOCK_ERROR		-1
 #define SOCK_TIMEOUT	-2
 
-typedef int(__stdcall *RecvCallback)(int, sockaddr_in, int, char*);
+typedef int(*RecvCallback)(int, sockaddr_in, int, char*);
 
-typedef int (__stdcall *fInitSocket)(int, int, const char*, RecvCallback);
+typedef int  (__stdcall *fInitSocket)(int, int, const char*, RecvCallback);
 typedef void (__stdcall *fUninitSocket)(int);
-typedef int (__stdcall *fTCPConnect)(int, int);
-typedef int (__stdcall *fTCPSend)(int, char* szDstIP, int nDstPort, char*);//server给指定的client发消息时，client的地址为addr
-typedef int (__stdcall *fUDPSend)(int, char* szDstIP, int nDstPort, char*);//server给指定的client发消息时，client的地址为addr
-typedef int (__stdcall *fTCPRecv)(int, char*, int, int);
-typedef int (__stdcall *fUDPRecv)(int, char*, int, int);
+typedef int  (__stdcall *fTCPConnect)(int, int);
+typedef int  (__stdcall *fTCPSend)(int, char* szDstIP, int nDstPort, char*);//server给指定的client发消息时，client的地址为addr
+typedef int  (__stdcall *fUDPSend)(int, char* szDstIP, int nDstPort, char*);//server给指定的client发消息时，client的地址为addr
+typedef int  (__stdcall *fTCPRecv)(int, char*, int, int);
+typedef int  (__stdcall *fUDPRecv)(int, char*, int, int);
 
 #ifndef USE_STATIC
 #pragma comment(lib, "..//Debug//SocketLibrary.lib")

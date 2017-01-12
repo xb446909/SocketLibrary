@@ -9,6 +9,7 @@
 #include <map>
 #include <vector>
 #include "SocketLibrary.h"
+#include <memory>
 
 using namespace std;
 
@@ -45,7 +46,7 @@ typedef struct _tagRecvSocket
 	}
 }RecvSocket, *pRecvSocket;
 
-map<int, pSocketParameter> g_socketMap;
+map<int, shared_ptr<SocketParameter>> g_socketMap;
 vector<RecvSocket> g_vecRecvSocket;
 HANDLE g_mutex;
 
@@ -70,7 +71,7 @@ void DeleteAddr(sockaddr_in addr)
 	}
 }
 
-pSocketParameter FindSockParam(int nID)
+shared_ptr<SocketParameter> FindSockParam(int nID)
 {
 	auto it = g_socketMap.find(nID);
 	if (it == g_socketMap.end())
@@ -84,7 +85,7 @@ void __stdcall UninitSocket(int nID)
 {
 	WaitForSingleObject(g_mutex, INFINITE);
 
-	pSocketParameter pSockParam;
+	shared_ptr<SocketParameter> pSockParam;
 	pSockParam = FindSockParam(nID);
 	if (pSockParam == nullptr)
 	{
@@ -98,7 +99,7 @@ void __stdcall UninitSocket(int nID)
 	WSACleanup();
 	pSockParam->bOK = FALSE;
 
-	delete pSockParam;
+	//delete pSockParam;
 	g_socketMap.erase(nID);
 
 	ReleaseMutex(g_mutex);
@@ -109,13 +110,14 @@ int __stdcall InitSocket(int nID, int nType, const char* szIniPath, RecvCallback
 	int iResult;
 	WSADATA wsaData;
 	//是否已经有绑定的socket，若已经初始化则先卸载
-	pSocketParameter pSockParam = FindSockParam(nID);
+	shared_ptr<SocketParameter> pSockParam1 = FindSockParam(nID);
 	g_mutex = CreateMutex(NULL, FALSE, NULL);
-	if (pSockParam != nullptr)
+	if (pSockParam1 != nullptr)
 	{
 		UninitSocket(nID);
 	}
-	pSockParam = new SocketParameter;
+	
+	shared_ptr<SocketParameter> pSockParam(new SocketParameter);
 
 	//----------------------
 	// Initialize Winsock
@@ -125,6 +127,7 @@ int __stdcall InitSocket(int nID, int nType, const char* szIniPath, RecvCallback
 		fs << "Initialize socket error: " << WSAGetLastError() << endl;
 		return SOCK_ERROR;
 	}
+
 	switch (nType)
 	{
 	case TCP_SERVER:
@@ -142,7 +145,6 @@ int __stdcall InitSocket(int nID, int nType, const char* szIniPath, RecvCallback
 
 		return SOCK_ERROR;
 	}
-
 	if (pSockParam->ConnectSocket == INVALID_SOCKET)
 	{
 		fstream fs(".\\SocketErrorLog.txt", ios::out | ios::in | ios::app);
@@ -162,7 +164,7 @@ int __stdcall InitSocket(int nID, int nType, const char* szIniPath, RecvCallback
 
 	pSockParam->pCallback = pCallback;
 	pSockParam->nType = nType;
-	g_socketMap.insert(pair<int, pSocketParameter>(nID, pSockParam));
+	g_socketMap.insert(pair<int, shared_ptr<SocketParameter>>(nID, pSockParam));
 
 	if (nType == TCP_SERVER || nType == UDP_SERVER)
 	{
@@ -181,7 +183,7 @@ int __stdcall InitSocket(int nID, int nType, const char* szIniPath, RecvCallback
 
 int __stdcall TCPConnect(int nID, int nTimeoutMs)
 {
-	pSocketParameter pSockParam = FindSockParam(nID);
+	shared_ptr<SocketParameter> pSockParam = FindSockParam(nID);
 	if (pSockParam == nullptr)
 	{
 		return SOCK_ERROR;
@@ -235,12 +237,13 @@ int __stdcall TCPConnect(int nID, int nTimeoutMs)
 		return SOCK_TIMEOUT;
 	}
 	pSockParam->bOK = TRUE;
+
 	return SOCK_SUCCESS;
 }
 
 int __stdcall TCPSend(int nID, char* szSendBuf, char* szDstIP, int nDstPort)
 {
-	pSocketParameter pSockParam = FindSockParam(nID);
+	shared_ptr<SocketParameter> pSockParam = FindSockParam(nID);
 	if (pSockParam == nullptr)
 	{
 		return SOCK_ERROR;
@@ -305,7 +308,7 @@ int __stdcall TCPSend(int nID, char* szSendBuf, char* szDstIP, int nDstPort)
 
 int __stdcall UDPSend(int nID, char* szSendBuf, char* szDstIP, int nDstPort)
 {
-	pSocketParameter pSockParam = FindSockParam(nID);
+	shared_ptr<SocketParameter> pSockParam = FindSockParam(nID);
 	if (pSockParam == nullptr)
 	{
 		return SOCK_ERROR;
@@ -349,7 +352,7 @@ int __stdcall UDPSend(int nID, char* szSendBuf, char* szDstIP, int nDstPort)
 
 int __stdcall TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs)
 {
-	pSocketParameter pSockParam = FindSockParam(nID);
+	shared_ptr<SocketParameter> pSockParam = FindSockParam(nID);
 	if (pSockParam == nullptr)
 	{
 		return SOCK_ERROR;
@@ -382,7 +385,7 @@ int __stdcall TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs)
 
 int __stdcall UDPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs)
 {
-	pSocketParameter pSockParam = FindSockParam(nID);
+	shared_ptr<SocketParameter> pSockParam = FindSockParam(nID);
 	if (pSockParam == nullptr)
 	{
 		return SOCK_ERROR;
@@ -418,7 +421,7 @@ int __stdcall UDPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs)
 
 BOOL BindSocket(int nID, int nType)
 {
-	pSocketParameter pSockParam = FindSockParam(nID);
+	shared_ptr<SocketParameter> pSockParam = FindSockParam(nID);
 	if (pSockParam == nullptr)
 	{
 		return FALSE;
@@ -455,6 +458,7 @@ BOOL BindSocket(int nID, int nType)
 		UninitSocket(nID);
 		return FALSE;
 	}
+
 	if (nType == TCP_SERVER)
 	{
 		HANDLE hThread = CreateThread(NULL, 0, TCPListenReceiveThread, (LPVOID)nID, 0, &pSockParam->dwThreadID);//(S3)
@@ -475,7 +479,7 @@ DWORD WINAPI UDPReceiveThread(LPVOID lpParam)
 	int nAcceptLen = sizeof(addrAccept);
 	int nRecvRes;
 	int nID = (int)lpParam;
-	pSocketParameter pSockParam = FindSockParam(nID);
+	shared_ptr<SocketParameter> pSockParam = FindSockParam(nID);
 	if (pSockParam == nullptr)
 	{
 		return FALSE;
@@ -518,7 +522,7 @@ DWORD WINAPI UDPReceiveThread(LPVOID lpParam)
 DWORD WINAPI TCPListenReceiveThread(LPVOID lpParam)
 {
 	int nID = (int)lpParam;
-	pSocketParameter pSockParam = FindSockParam(nID);
+	shared_ptr<SocketParameter> pSockParam = FindSockParam(nID);
 	if (pSockParam == nullptr)
 	{
 		return FALSE;

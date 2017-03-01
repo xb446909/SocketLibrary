@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <fstream>
+#include <sstream>
 #include <utility>
 #include <map>
 #include <vector>
@@ -94,6 +95,7 @@ void __stdcall UninitSocket(int nID)
 	{
 		PostThreadMessage(pSockParam->dwThreadID, UM_QUIT, 0, 0);
 	}
+	shutdown(pSockParam->ConnectSocket, SD_BOTH);
 	closesocket(pSockParam->ConnectSocket);
 	WSACleanup();
 	pSockParam->bOK = FALSE;
@@ -374,7 +376,8 @@ int __stdcall TCPRecv(int nID, char* szRecvBuf, int nBufLen, int nTimeoutMs)
 	{
 		if (pSockParam->nType == TCP_CLIENT)
 		{
-			recv(pSockParam->ConnectSocket, szRecvBuf, nBufLen, 0);
+			if (recv(pSockParam->ConnectSocket, szRecvBuf, nBufLen, 0) <= 0)
+				return SOCK_CLOSED;
 		}
 	}
 	return SOCK_SUCCESS;

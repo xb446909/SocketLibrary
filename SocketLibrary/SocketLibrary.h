@@ -15,6 +15,7 @@
 #define SOCK_SUCCESS	0
 #define SOCK_ERROR		-1
 #define SOCK_TIMEOUT	-2
+#define SOCK_CLOSED		-3
 
 typedef int(*RecvCallback)(int, sockaddr_in, int, char*);
 

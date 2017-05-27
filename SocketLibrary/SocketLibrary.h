@@ -17,7 +17,7 @@
 #define SOCK_TIMEOUT	-2
 #define SOCK_CLOSED		-3
 
-typedef int(*RecvCallback)(int, sockaddr_in, int, char*);
+typedef int(*RecvCallback)(int nType, sockaddr_in addr, int nSize, char* szRecv);
 
 typedef int  (__stdcall *fInitSocket)(int, int, const char*, RecvCallback);
 typedef void (__stdcall *fUninitSocket)(int);

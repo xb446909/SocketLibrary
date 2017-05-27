@@ -237,6 +237,7 @@ int __stdcall TCPConnect(int nID, int nTimeoutMs)
 		return SOCK_TIMEOUT;
 	}
 	pSockParam->bOK = TRUE;
+
 	return SOCK_SUCCESS;
 }
 
@@ -634,4 +635,12 @@ DWORD WINAPI TCPListenReceiveThread(LPVOID lpParam)
 		}
 	}
 	return SOCK_SUCCESS;
+}
+
+void UninitAllSockets()
+{
+	for (auto it = g_socketMap.begin(); it != g_socketMap.end(); it++)
+	{
+		UninitSocket(it->first);
+	}
 }
